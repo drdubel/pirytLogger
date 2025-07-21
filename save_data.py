@@ -82,10 +82,10 @@ def handle_data(sorted_data, device_data, device):
 
         case "$GPMWV":
             if device_data.wind_angle:
-                sorted_data["apparent_wind_angle"] = device_data.wind_angle
+                sorted_data["AWA"] = device_data.wind_angle
 
             if device_data.wind_speed:
-                sorted_data["apparent_wind_speed"] = device_data.wind_speed
+                sorted_data["AWS"] = device_data.wind_speed
 
         case "$GPRMC":
             if device_data.spd_over_grnd:
@@ -142,8 +142,8 @@ def create_tables():
                     timestamp TIMESTAMPTZ DEFAULT NOW(),
                     rate_of_turn REAL,
                     heading REAL,
-                    apparent_wind_angle REAL,
-                    apparent_wind_speed REAL,
+                    AWA REAL,
+                    AWS REAL,
                     true_track REAL,
                     mag_track REAL,
                     speed REAL,
@@ -164,8 +164,8 @@ def create_tables():
                     horizontal_dil REAL,
                     altitude REAL,
                     geo_sep REAL,
-                    true_wind_angle REAL,
-                    true_wind_speed REAL
+                    TWA REAL,
+                    TWS REAL
                 );
                 """
             )
@@ -174,19 +174,19 @@ def create_tables():
                 CREATE TABLE IF NOT EXISTS hourly_navigation_summary (
                     id SERIAL PRIMARY KEY,
                     hour TIMESTAMPTZ DEFAULT NOW(),
-                    avg_true_wind_angle REAL,
-                    avg_true_wind_speed REAL,
-                    avg_apparent_wind_angle REAL,
-                    avg_apparent_wind_speed REAL,
-                    avg_heading_magnetic REAL,
-                    avg_speed REAL,
-                    altitude REAL,
-                    lat REAL,
-                    lat_dir VARCHAR(2),
-                    lon REAL,
-                    lon_dir VARCHAR(2),
-                    depth REAL,
-                    temperature REAL
+                    TWA REAL,
+                    TWS REAL,
+                    AWA REAL,
+                    AWS REAL,
+                    Heading REAL,
+                    Speed REAL,
+                    Altitude REAL,
+                    Lattitude REAL,
+                    LatDir VARCHAR(2),
+                    Longitude REAL,
+                    LonDir VARCHAR(2),
+                    Depth REAL,
+                    Temp REAL
                 );
                 """
             )
@@ -195,10 +195,10 @@ def create_tables():
 
 
 def send_data(sorted_data):
-    sorted_data["true_wind_speed"], sorted_data["true_wind_angle"] = (
+    sorted_data["TWS"], sorted_data["TWA"] = (
         calculate_true_wind(
-            float(sorted_data["apparent_wind_speed"]),
-            float(sorted_data["apparent_wind_angle"]),
+            float(sorted_data["AWS"]),
+            float(sorted_data["AWA"]),
             float(sorted_data["speed"]),
         )
     )
@@ -236,12 +236,12 @@ def send_hourly_summary():
             # First, get averages and last row
             avg_query = """
                 SELECT
-                    ROUND(AVG(true_wind_angle::numeric), 2) AS avg_true_wind_angle,
-                    ROUND(AVG(true_wind_speed::numeric), 2) AS avg_true_wind_speed,
-                    ROUND(AVG(apparent_wind_angle::numeric), 2) AS avg_apparent_wind_angle,
-                    ROUND(AVG(apparent_wind_speed::numeric), 2) AS avg_apparent_wind_speed,
-                    ROUND(AVG(heading_magnetic::numeric), 2) AS avg_heading_magnetic,
-                    ROUND(AVG(speed::numeric), 2) AS avg_speed
+                    ROUND(AVG(TWA::numeric), 2) AS TWA,
+                    ROUND(AVG(TWS::numeric), 2) AS TWS,
+                    ROUND(AVG(AWA::numeric), 2) AS AWA,
+                    ROUND(AVG(AWS::numeric), 2) AS AWS,
+                    ROUND(AVG(heading_magnetic::numeric), 2) AS Heading,
+                    ROUND(AVG(speed::numeric), 2) AS Speed
                 FROM navigation_data
                 WHERE timestamp >= %s AND timestamp < %s;
             """
@@ -267,20 +267,20 @@ def send_hourly_summary():
 
             insert_query = """
                 INSERT INTO hourly_navigation_summary (
-                    hour,
-                    avg_true_wind_angle,
-                    avg_true_wind_speed,
-                    avg_apparent_wind_angle,
-                    avg_apparent_wind_speed,
-                    avg_heading_magnetic,
-                    avg_speed,
-                    altitude,
-                    lat,
-                    lat_dir,
-                    lon,
-                    lon_dir,
-                    depth,
-                    temperature
+                    Hour,
+                    TWA,
+                    TWS,
+                    AWA,
+                    AWS,
+                    Heading,
+                    Speed,
+                    Altitude,
+                    Lattitude,
+                    LatDir,
+                    Longitude,
+                    LonDir,
+                    Depth,
+                    Temp
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
