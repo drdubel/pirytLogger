@@ -30,7 +30,10 @@ def index():
 
 
 if __name__ == "__main__":
-    create_tables()
-    threading.Thread(target=data_saver, daemon=True).start()
+    import os
 
-    app.run(debug=True, threaded=True, use_reloader=False)
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        create_tables()
+        threading.Thread(target=data_saver, daemon=True).start()
+
+    app.run(debug=True, use_reloader=True, threaded=True)
