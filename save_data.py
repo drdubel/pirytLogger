@@ -195,12 +195,10 @@ def create_tables():
 
 
 def send_data(sorted_data):
-    sorted_data["TWS"], sorted_data["TWA"] = (
-        calculate_true_wind(
-            float(sorted_data["AWS"]),
-            float(sorted_data["AWA"]),
-            float(sorted_data["speed"]),
-        )
+    sorted_data["TWS"], sorted_data["TWA"] = calculate_true_wind(
+        float(sorted_data["AWS"]),
+        float(sorted_data["AWA"]),
+        float(sorted_data["speed"]),
     )
 
     print(sorted_data.keys())
