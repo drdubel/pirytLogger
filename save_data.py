@@ -1,15 +1,13 @@
 import math
 import socket
-from datetime import datetime, timedelta, timezone
-from time import sleep
+from datetime import datetime, timezone
+from time import sleep, time
 
-import psycopg
 import pynmea2
+import requests
 
-from credentials import db_name, db_user
-
-db_host = "localhost"
-db_port = 5432
+vhost = "localhost"
+vport = 8428
 
 devices: list[str] = [
     "$GPDPT",
@@ -130,70 +128,6 @@ def handle_data(sorted_data, device_data, device):
                 sorted_data["local_zone"] = device_data.local_zone
 
 
-def create_tables():
-    with psycopg.connect(
-        f"host={db_host} port={db_port} dbname={db_name} user={db_user}"
-    ) as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS navigation_data (
-                    id SERIAL PRIMARY KEY,
-                    timestamp TIMESTAMPTZ DEFAULT NOW(),
-                    rate_of_turn REAL,
-                    heading REAL,
-                    AWA REAL,
-                    AWS REAL,
-                    true_track REAL,
-                    mag_track REAL,
-                    speed REAL,
-                    true_course REAL,
-                    mag_var REAL,
-                    mag_var_dir VARCHAR(2),
-                    true_heading REAL,
-                    heading_magnetic REAL,
-                    water_speed REAL,
-                    temperature REAL,
-                    depth REAL,
-                    trip_distance REAL,
-                    lat REAL,
-                    lat_dir VARCHAR(2),
-                    lon REAL,
-                    lon_dir VARCHAR(2),
-                    num_sats INTEGER,
-                    horizontal_dil REAL,
-                    altitude REAL,
-                    geo_sep REAL,
-                    TWA REAL,
-                    TWS REAL
-                );
-                """
-            )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS hourly_navigation_summary (
-                    id SERIAL PRIMARY KEY,
-                    hour TIMESTAMPTZ DEFAULT NOW(),
-                    TWA REAL,
-                    TWS REAL,
-                    AWA REAL,
-                    AWS REAL,
-                    Heading REAL,
-                    Speed REAL,
-                    Altitude REAL,
-                    Lattitude REAL,
-                    LatDir VARCHAR(2),
-                    Longitude REAL,
-                    LonDir VARCHAR(2),
-                    Depth REAL,
-                    Temp REAL
-                );
-                """
-            )
-
-        conn.commit()
-
-
 def send_data(sorted_data):
     sorted_data["TWS"], sorted_data["TWA"] = calculate_true_wind(
         float(sorted_data["AWS"]),
@@ -201,100 +135,21 @@ def send_data(sorted_data):
         float(sorted_data["speed"]),
     )
 
-    print(sorted_data.keys())
+    labels = {"vessel": "Piryt"}
+    label_str = ",".join([f'{k}="{v}"' for k, v in labels.items()])
 
-    with psycopg.connect(
-        f"host={db_host} port={db_port} dbname={db_name} user={db_user}"
-    ) as conn:
-        with conn.cursor() as cur:
-            columns = ", ".join(sorted_data.keys())
-            placeholders = ", ".join(["%s"] * len(sorted_data))
-            values = tuple(sorted_data.values())
-            cur.execute(
-                f"""
-                INSERT INTO navigation_data ({columns})
-                VALUES ({placeholders})
-                """,
-                values,
-            )
-        conn.commit()
+    timestamp = int(time())
+
+    lines = ""
+    for key, value in sorted_data.items():
+        lines += f"{key}{{{label_str}}} {value} {timestamp}\n"
+
+    url = f"http://{vhost}:{vport}/api/v1/import/prometheus"
+    response = requests.post(url, data=lines)
+    print(response)
 
 
-def send_hourly_summary():
-    with psycopg.connect(
-        f"host={db_host} port={db_port} dbname={db_name} user={db_user}"
-    ) as conn:
-        with conn.cursor() as cur:
-            time_to = datetime.now(timezone.utc).replace(
-                minute=0, second=0, microsecond=0
-            )
-            time_from = time_to - timedelta(hours=1)
-            print(f"Saving summary for {time_from} to {time_to}")
-
-            # First, get averages and last row
-            avg_query = """
-                SELECT
-                    ROUND(AVG(TWA::numeric), 2) AS TWA,
-                    ROUND(AVG(TWS::numeric), 2) AS TWS,
-                    ROUND(AVG(AWA::numeric), 2) AS AWA,
-                    ROUND(AVG(AWS::numeric), 2) AS AWS,
-                    ROUND(AVG(heading_magnetic::numeric), 2) AS Heading,
-                    ROUND(AVG(speed::numeric), 2) AS Speed
-                FROM navigation_data
-                WHERE timestamp >= %s AND timestamp < %s;
-            """
-            cur.execute(avg_query, (time_from, time_to))
-            avg_result = cur.fetchone()
-
-            last_row_query = """
-                SELECT
-                    altitude,
-                    lat,
-                    lat_dir,
-                    lon,
-                    lon_dir,
-                    depth,
-                    temperature
-                FROM navigation_data
-                WHERE timestamp >= %s AND timestamp < %s
-                ORDER BY timestamp DESC
-                LIMIT 1;
-            """
-            cur.execute(last_row_query, (time_from, time_to))
-            last_row = cur.fetchone()
-
-            insert_query = """
-                INSERT INTO hourly_navigation_summary (
-                    Hour,
-                    TWA,
-                    TWS,
-                    AWA,
-                    AWS,
-                    Heading,
-                    Speed,
-                    Altitude,
-                    Lattitude,
-                    LatDir,
-                    Longitude,
-                    LonDir,
-                    Depth,
-                    Temp
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """
-
-            values = (
-                time_from,
-                *(avg_result if avg_result else (None,) * 6),
-                *(last_row if last_row else (None,) * 7),
-            )
-
-            print(values)
-            cur.execute(insert_query, values)
-            print(f"Saved summary for {time_from} to {time_to}")
-
-
-def data_saver(save_interval=20):
+def data_saver(save_interval=5):
     sorted_data = {}
     ip = "192.168.76.51"
     port = 10110
@@ -326,16 +181,12 @@ def data_saver(save_interval=20):
             if now - start > save_interval:
                 send_data(sorted_data)
 
-                if int(now) % 3600 < save_interval:
-                    send_hourly_summary()
-
                 start = math.floor(datetime.now(timezone.utc).timestamp())
 
             sleep(0.1)
 
 
 def main():
-    create_tables()
     data_saver()
 
 
