@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   victoriametrics:
-    image: victoriametrics/victoria-metrics-arm64  # ARM64 image
+    image: victoriametrics/victoria-metrics  # ARM64 image
     container_name: victoriametrics
     ports:
       - "8428:8428"
@@ -12,7 +12,7 @@ services:
       -storageDataPath=/storage
 
   grafana:
-    image: grafana/grafana-oss-arm64  # ARM64 Grafana image
+    image: grafana/grafana-oss  # ARM64 Grafana image
     container_name: grafana
     ports:
       - "3000:3000"
